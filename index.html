@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Catatan Pengeluaran Anak Kost</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Chosen Palette: "Warm Neutrals" - A calm and focused theme using slate, sky blue, and amber for accents. -->
+    <!-- Application Structure Plan: A two-column dashboard layout. The left column now includes income/expense forms, a new "Pengaturan Data" section with a reset button, and the detailed transaction history. The right column presents key financial summaries (Total Income, Total Expense, Current Balance) and a dynamic donut chart for expense categories. This structure logically separates input/control from summary/analysis. Edit buttons are integrated directly into the transaction history for quick access, and the forms adapt to "add" or "update" modes. The reset functionality is isolated in a new settings section for clarity. On mobile, the layout stacks vertically. -->
+    <!-- Visualization & Content Choices: 
+        - Initial Income/Add Income -> Goal: Organize -> Method: HTML Form -> Interaction: User inputs income, updates balance. Justification: Essential for comprehensive balance tracking.
+        - Expense Entry -> Goal: Organize -> Method: HTML Form -> Interaction: User fills fields, dropdown for category ensures data consistency. Justification: Standard, efficient data input.
+        - Edit Transaction -> Goal: Modify Data -> Method: HTML Form (reused for input/edit) & "Edit" buttons in table -> Interaction: Click edit button to populate form, update button to save changes, cancel button to revert. Justification: Reuses existing UI elements, intuitive for users to modify entries directly from the history.
+        - Reset Data -> Goal: Data Management -> Method: HTML Button + Custom Modal Confirmation -> Interaction: User clicks button, confirms in modal. Justification: Provides crucial data management option while preventing accidental deletion via explicit confirmation.
+        - Sync to Google Sheets -> Goal: Organize/Export -> Method: Button + URL input -> Interaction: User inputs Apps Script URL, clicks button to send all data to Google Sheets. Justification: Enables persistent, shareable data storage in GSheets.
+        - Total Income, Total Expense, Current Balance -> Goal: Inform -> Method: Key Metric Cards -> Interaction: Updates instantly. Justification: Provides immediate, comprehensive financial status.
+        - Spending by Category -> Goal: Compare/Analyze -> Method: Donut Chart (Chart.js) -> Interaction: Hover for details (tooltips), updates instantly. Justification: Excellent for showing part-to-whole relationships.
+        - Transaction History (Income & Expense) -> Goal: Inform/Organize -> Method: HTML Table with Edit/Delete Buttons -> Interaction: Scrollable list of all transactions, click edit to modify, click delete to remove. Justification: Provides detailed, transparent record-keeping with direct manipulation capabilities. -->
+    <!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 768px; /* max-w-xl */
+            margin-left: auto;
+            margin-right: auto;
+            height: 320px; /* h-80 */
+        }
+        @media (min-width: 640px) { /* sm */
+            .chart-container {
+                height: 384px; /* sm:h-96 */
+            }
+        }
+        @media (min-width: 768px) { /* md */
+            .chart-container {
+                height: 400px; /* md:h-[400px] */
+            }
+        }
+        .table-container {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9; /* slate-100 */
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #94a3b8; /* slate-400 */
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748b; /* slate-500 */
+        }
+        /* Custom Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+        .modal-overlay.open {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+            width: 90%;
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.open .modal-content {
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="text-slate-800">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
+
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-900">Catatan Pengeluaran Anak Kost By DamarATM</h1>
+            <p class="mt-2 text-slate-600">Solusi mudah untuk memantau keuanganmu selama magang.</p>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+
+            <div class="lg:col-span-1 space-y-6">
+                
+                <section id="income-form-section" class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 class="text-xl font-bold mb-4">Tambah Pemasukan</h2>
+                    <p class="text-sm text-slate-500 mb-6">Catat setiap pemasukan yang kamu terima untuk menjaga saldo tetap akurat.</p>
+                    <form id="income-form" class="space-y-4">
+                        <input type="hidden" id="income-id">
+                        <div>
+                            <label for="income-date" class="block text-sm font-medium text-slate-700">Tanggal</label>
+                            <input type="date" id="income-date" name="incomeDate" required class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="income-description" class="block text-sm font-medium text-slate-700">Deskripsi</label>
+                            <input type="text" id="income-description" name="incomeDescription" required placeholder="Contoh: Transfer orang tua" class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="income-amount" class="block text-sm font-medium text-slate-700">Jumlah (Rp)</label>
+                            <input type="number" id="income-amount" name="incomeAmount" required placeholder="Contoh: 500000" class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                        </div>
+                        <div class="flex space-x-2">
+                             <button type="submit" id="submit-income-button" class="flex-1 bg-amber-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 transition-colors">
+                                Tambah Pemasukan
+                            </button>
+                            <button type="button" id="cancel-income-edit-button" class="flex-1 bg-slate-400 text-white font-bold py-2 px-4 rounded-lg hover:bg-slate-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-300 transition-colors hidden">
+                                Batal Edit
+                            </button>
+                        </div>
+                    </form>
+                </section>
+
+                <section id="expense-form-section" class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 class="text-xl font-bold mb-4">Tambah Pengeluaran Baru</h2>
+                    <p class="text-sm text-slate-500 mb-6">Gunakan formulir ini untuk mencatat setiap pengeluaranmu. Mencatat secara rutin membantumu tetap sesuai anggaran.</p>
+                    <form id="expense-form" class="space-y-4">
+                        <input type="hidden" id="expense-id">
+                        <div>
+                            <label for="date" class="block text-sm font-medium text-slate-700">Tanggal</label>
+                            <input type="date" id="date" name="date" required class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="description" class="block text-sm font-medium text-slate-700">Deskripsi</label>
+                            <input type="text" id="description" name="description" required placeholder="Contoh: Makan siang di warung" class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                        </div>
+                        <div>
+                            <label for="category" class="block text-sm font-medium text-slate-700">Kategori</label>
+                            <select id="category" name="category" required class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                                <option value="Makan">Makan</option>
+                                <option value="Transportasi">Transportasi</option>
+                                <option value="Kost">Kost</option>
+                                <option value="Tagihan">Tagihan (Listrik/Internet)</option>
+                                <option value="Hiburan">Hiburan</option>
+                                <option value="Belanja Kebutuhan">Belanja Kebutuhan</option>
+                                <option value="Pendidikan/Magang">Pendidikan/Magang</option>
+                                <option value="Lain-lain">Lain-lain</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label for="amount" class="block text-sm font-medium text-slate-700">Jumlah (Rp)</label>
+                            <input type="number" id="amount" name="amount" required placeholder="Contoh: 15000" class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                        </div>
+                        <div class="flex space-x-2">
+                            <button type="submit" id="submit-expense-button" class="flex-1 bg-sky-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-sky-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 transition-colors">
+                                Tambah Pengeluaran
+                            </button>
+                            <button type="button" id="cancel-expense-edit-button" class="flex-1 bg-slate-400 text-white font-bold py-2 px-4 rounded-lg hover:bg-slate-500 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-300 transition-colors hidden">
+                                Batal Edit
+                            </button>
+                        </div>
+                    </form>
+                </section>
+                
+                <section id="data-settings-section" class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 class="text-xl font-bold mb-4">Pengaturan Data</h2>
+                    <p class="text-sm text-slate-500 mb-6">Kelola datamu. Hati-hati saat mereset data karena aksi ini tidak bisa dibatalkan.</p>
+                    <button id="reset-data-button" class="w-full bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
+                        Reset Semua Data
+                    </button>
+                </section>
+
+                <section id="sync-section" class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 class="text-xl font-bold mb-4">Sinkronisasi ke Google Sheets</h2>
+                    <p class="text-sm text-slate-500 mb-6">Salin URL Google Apps Script yang sudah kamu buat di sini, lalu klik tombol sinkronisasi untuk menyimpan datamu ke Google Sheets.</p>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="apps-script-url" class="block text-sm font-medium text-slate-700">URL Google Apps Script</label>
+                            <input type="url" id="apps-script-url" name="appsScriptUrl" placeholder="Tempel URL-mu di sini" class="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm placeholder-slate-400 focus:outline-none focus:ring-sky-500 focus:border-sky-500 sm:text-sm">
+                        </div>
+                        <button id="sync-button" class="w-full bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-colors">
+                            Sinkronkan Data
+                        </button>
+                         <div id="sync-status" class="mt-2 text-center text-sm font-medium"></div>
+                    </div>
+                </section>
+
+                <section id="history-section" class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 class="text-xl font-bold mb-4">Riwayat Transaksi</h2>
+                     <p class="text-sm text-slate-500 mb-6">Berikut adalah daftar semua transaksi (pemasukan dan pengeluaran) yang telah kamu catat, diurutkan dari yang terbaru.</p>
+                    <div class="table-container">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-slate-50">
+                                <tr>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Deskripsi</th>
+                                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tipe</th>
+                                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Jumlah</th>
+                                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody id="transaction-table-body" class="bg-white divide-y divide-slate-200">
+                                <tr id="no-transaction-data-row">
+                                    <td colspan="4" class="px-4 py-4 text-center text-sm text-slate-500">Belum ada data transaksi.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+            </div>
+
+            <div class="lg:col-span-2 space-y-6">
+
+                <section id="summary-section">
+                     <h2 class="text-xl font-bold mb-4">Ringkasan Keuangan</h2>
+                     <p class="text-sm text-slate-500 mb-6">Pantau saldo, total pemasukan, dan pengeluaranmu secara keseluruhan.</p>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 class="text-slate-500 font-medium">Saldo Saat Ini</h3>
+                            <p id="current-balance" class="text-3xl font-bold text-teal-600 mt-2">Rp 0</p>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 class="text-slate-500 font-medium">Total Pemasukan</h3>
+                            <p id="total-income" class="text-3xl font-bold text-amber-600 mt-2">Rp 0</p>
+                        </div>
+                        <div class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                            <h3 class="text-slate-500 font-medium">Total Pengeluaran</h3>
+                            <p id="total-expense" class="text-3xl font-bold text-sky-600 mt-2">Rp 0</p>
+                        </div>
+                    </div>
+                </section>
+
+                <section id="chart-section" class="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <h2 class="text-xl font-bold mb-4 text-center">Pengeluaran per Kategori</h2>
+                    <div class="chart-container">
+                        <canvas id="category-chart"></canvas>
+                    </div>
+                </section>
+
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Custom Confirmation Modal -->
+    <div id="confirmation-modal" class="modal-overlay">
+        <div class="modal-content">
+            <h3 class="text-lg font-bold mb-4 text-slate-800">Konfirmasi Reset Data</h3>
+            <p class="text-sm text-slate-600 mb-6">Apakah Anda yakin ingin menghapus semua data transaksi (pemasukan dan pengeluaran)? Aksi ini tidak dapat dibatalkan.</p>
+            <div class="flex justify-end space-x-3">
+                <button id="cancel-reset" class="px-4 py-2 bg-slate-200 text-slate-700 rounded-lg hover:bg-slate-300 transition-colors">
+                    Batal
+                </button>
+                <button id="confirm-reset" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">
+                    Ya, Reset Data
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const incomeForm = document.getElementById('income-form');
+            const expenseForm = document.getElementById('expense-form');
+            const transactionTableBody = document.getElementById('transaction-table-body');
+            const noTransactionDataRow = document.getElementById('no-transaction-data-row');
+            const currentBalanceEl = document.getElementById('current-balance');
+            const totalIncomeEl = document.getElementById('total-income');
+            const totalExpenseEl = document.getElementById('total-expense');
+            const categoryChartCanvas = document.getElementById('category-chart').getContext('2d');
+            const appsScriptUrlInput = document.getElementById('apps-script-url');
+            const syncButton = document.getElementById('sync-button');
+            const syncStatusEl = document.getElementById('sync-status');
+            const resetDataButton = document.getElementById('reset-data-button');
+            const confirmationModal = document.getElementById('confirmation-modal');
+            const confirmResetButton = document.getElementById('confirm-reset');
+            const cancelResetButton = document.getElementById('cancel-reset');
+
+            const submitIncomeButton = document.getElementById('submit-income-button');
+            const cancelIncomeEditButton = document.getElementById('cancel-income-edit-button');
+            const incomeIdInput = document.getElementById('income-id');
+
+            const submitExpenseButton = document.getElementById('submit-expense-button');
+            const cancelExpenseEditButton = document.getElementById('cancel-expense-edit-button');
+            const expenseIdInput = document.getElementById('expense-id');
+            
+            let incomes = JSON.parse(localStorage.getItem('incomes')) || [];
+            let expenses = JSON.parse(localStorage.getItem('expenses')) || [];
+            let appsScriptUrl = localStorage.getItem('appsScriptUrl') || '';
+
+            let currentEditIncomeId = null;
+            let currentEditExpenseId = null;
+
+            appsScriptUrlInput.value = appsScriptUrl;
+
+            let categoryChart;
+
+            const categoryColors = {
+                'Makan': '#34d399', // emerald-400
+                'Transportasi': '#60a5fa', // blue-400
+                'Kost': '#c084fc', // purple-400
+                'Tagihan': '#f87171', // red-400
+                'Hiburan': '#fbbf24', // amber-400
+                'Belanja Kebutuhan': '#a78bfa', // violet-400
+                'Pendidikan/Magang': '#22d3ee', // cyan-400
+                'Lain-lain': '#94a3b8' // slate-400
+            };
+
+            const formatCurrency = (amount) => {
+                return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount);
+            };
+
+            const updateUI = () => {
+                renderTransactions();
+                renderSummary();
+                renderChart();
+                localStorage.setItem('incomes', JSON.stringify(incomes));
+                localStorage.setItem('expenses', JSON.stringify(expenses));
+                localStorage.setItem('appsScriptUrl', appsScriptUrlInput.value);
+            };
+
+            const renderTransactions = () => {
+                transactionTableBody.innerHTML = '';
+                const allTransactions = [
+                    ...incomes.map(item => ({ ...item, type: 'Pemasukan', rawDate: new Date(item.date), category: item.description, originalType: 'income' })),
+                    ...expenses.map(item => ({ ...item, type: 'Pengeluaran', rawDate: new Date(item.date), originalType: 'expense' }))
+                ];
+
+                if (allTransactions.length === 0) {
+                    transactionTableBody.appendChild(noTransactionDataRow);
+                    return;
+                }
+                
+                const sortedTransactions = allTransactions.sort((a, b) => b.rawDate - a.rawDate);
+
+                sortedTransactions.forEach(transaction => {
+                    const row = document.createElement('tr');
+                    const amountColorClass = transaction.type === 'Pemasukan' ? 'text-emerald-700' : 'text-rose-700';
+                    const badgeColorClass = transaction.type === 'Pemasukan' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800';
+
+                    row.innerHTML = `
+                        <td class="px-4 py-3 whitespace-nowrap">
+                            <div class="text-sm font-medium text-slate-900">${transaction.description}</div>
+                            <div class="text-xs text-slate-500">${new Date(transaction.date).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap">
+                             <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${badgeColorClass}">
+                                ${transaction.type}
+                            </span>
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap text-right text-sm font-medium ${amountColorClass}">${formatCurrency(transaction.amount)}</td>
+                        <td class="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                            <button data-id="${transaction.id}" data-type="${transaction.originalType}" class="edit-btn text-sky-600 hover:text-sky-900 mr-2">Edit</button>
+                            <button data-id="${transaction.id}" data-type="${transaction.originalType}" class="delete-btn text-red-600 hover:text-red-900">Hapus</button>
+                        </td>
+                    `;
+                    transactionTableBody.appendChild(row);
+                });
+
+                document.querySelectorAll('.edit-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const id = parseFloat(e.target.dataset.id);
+                        const type = e.target.dataset.type;
+                        if (type === 'income') {
+                            editIncome(id);
+                        } else {
+                            editExpense(id);
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.delete-btn').forEach(button => {
+                    button.addEventListener('click', (e) => {
+                        const id = parseFloat(e.target.dataset.id);
+                        const type = e.target.dataset.type;
+                        deleteTransaction(id, type);
+                    });
+                });
+            };
+
+            const editIncome = (id) => {
+                const incomeToEdit = incomes.find(inc => inc.id === id);
+                if (incomeToEdit) {
+                    incomeIdInput.value = incomeToEdit.id;
+                    document.getElementById('income-date').value = incomeToEdit.date;
+                    document.getElementById('income-description').value = incomeToEdit.description;
+                    document.getElementById('income-amount').value = incomeToEdit.amount;
+                    
+                    submitIncomeButton.textContent = 'Perbarui Pemasukan';
+                    cancelIncomeEditButton.classList.remove('hidden');
+                    currentEditIncomeId = id;
+                    // Scroll to form
+                    incomeForm.scrollIntoView({ behavior: 'smooth' });
+                }
+            };
+
+            const editExpense = (id) => {
+                const expenseToEdit = expenses.find(exp => exp.id === id);
+                if (expenseToEdit) {
+                    expenseIdInput.value = expenseToEdit.id;
+                    document.getElementById('date').value = expenseToEdit.date;
+                    document.getElementById('description').value = expenseToEdit.description;
+                    document.getElementById('category').value = expenseToEdit.category;
+                    document.getElementById('amount').value = expenseToEdit.amount;
+                    
+                    submitExpenseButton.textContent = 'Perbarui Pengeluaran';
+                    cancelExpenseEditButton.classList.remove('hidden');
+                    currentEditExpenseId = id;
+                    // Scroll to form
+                    expenseForm.scrollIntoView({ behavior: 'smooth' });
+                }
+            };
+
+            const deleteTransaction = (id, type) => {
+                if (type === 'income') {
+                    incomes = incomes.filter(item => item.id !== id);
+                } else {
+                    expenses = expenses.filter(item => item.id !== id);
+                }
+                updateUI();
+                resetForms();
+            };
+
+            const resetForms = () => {
+                incomeForm.reset();
+                expenseForm.reset();
+                document.getElementById('date').valueAsDate = new Date();
+                document.getElementById('income-date').valueAsDate = new Date();
+                
+                submitIncomeButton.textContent = 'Tambah Pemasukan';
+                cancelIncomeEditButton.classList.add('hidden');
+                currentEditIncomeId = null;
+                incomeIdInput.value = '';
+
+                submitExpenseButton.textContent = 'Tambah Pengeluaran';
+                cancelExpenseEditButton.classList.add('hidden');
+                currentEditExpenseId = null;
+                expenseIdInput.value = '';
+            };
+
+            const renderSummary = () => {
+                const totalIncome = incomes.reduce((sum, item) => sum + item.amount, 0);
+                const totalExpense = expenses.reduce((sum, item) => sum + item.amount, 0);
+                const currentBalance = totalIncome - totalExpense;
+
+                totalIncomeEl.textContent = formatCurrency(totalIncome);
+                totalExpenseEl.textContent = formatCurrency(totalExpense);
+                currentBalanceEl.textContent = formatCurrency(currentBalance);
+            };
+            
+            const renderChart = () => {
+                const categoryTotals = expenses.reduce((acc, expense) => {
+                    acc[expense.category] = (acc[expense.category] || 0) + expense.amount;
+                    return acc;
+                }, {});
+
+                const chartLabels = Object.keys(categoryTotals);
+                const chartData = Object.values(categoryTotals);
+                const chartColors = chartLabels.map(label => categoryColors[label] || '#94a3b8');
+
+                if (categoryChart) {
+                    categoryChart.destroy();
+                }
+
+                if (chartLabels.length === 0) {
+                     categoryChart = new Chart(categoryChartCanvas, {
+                        type: 'doughnut',
+                        data: {
+                            labels: ['Belum ada data'],
+                            datasets: [{
+                                data: [1],
+                                backgroundColor: ['#e2e8f0'] // slate-200
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: { display: false },
+                                tooltip: { enabled: false }
+                            },
+                        }
+                    });
+                    return;
+                }
+
+                categoryChart = new Chart(categoryChartCanvas, {
+                    type: 'doughnut',
+                    data: {
+                        labels: chartLabels,
+                        datasets: [{
+                            label: 'Pengeluaran',
+                            data: chartData,
+                            backgroundColor: chartColors,
+                            borderColor: '#ffffff',
+                            borderWidth: 2,
+                            hoverOffset: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        cutout: '60%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    boxWidth: 12,
+                                    font: { size: 12 }
+                                },
+                                generateLabels: function(chart) {
+                                    const data = chart.data;
+                                    if (data.labels.length && data.datasets.length) {
+                                        const labels = data.labels;
+                                        return labels.map(function(label, i) {
+                                            const meta = chart.getDatasetMeta(0);
+                                            const style = meta.data[i].options;
+                                            const total = data.datasets[0].data.reduce((a, b) => a + b, 0);
+                                            const value = data.datasets[0].data[i];
+                                            const percentage = total > 0 ? ((value / total) * 100).toFixed(1) + '%' : '0%';
+
+                                            return {
+                                                text: `${label} (${percentage})`,
+                                                fillStyle: style.backgroundColor,
+                                                strokeStyle: style.borderColor,
+                                                lineWidth: style.borderWidth,
+                                                hidden: !chart.getDataVisibility(i),
+                                                index: i
+                                            };
+                                        });
+                                    }
+                                    return [];
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.label || '';
+                                        if (label) {
+                                            label += ': ';
+                                        }
+                                        if (context.parsed !== null) {
+                                            label += formatCurrency(context.parsed);
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            };
+            
+            incomeForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+
+                const newIncome = {
+                    date: document.getElementById('income-date').value,
+                    description: document.getElementById('income-description').value,
+                    amount: parseFloat(document.getElementById('income-amount').value),
+                    id: currentEditIncomeId || Date.now() + Math.random() // Use existing ID or generate new
+                };
+
+                if (currentEditIncomeId) {
+                    const index = incomes.findIndex(inc => inc.id === currentEditIncomeId);
+                    if (index !== -1) {
+                        incomes[index] = newIncome;
+                    }
+                } else {
+                    incomes.push(newIncome);
+                }
+                resetForms();
+                updateUI();
+            });
+
+            expenseForm.addEventListener('submit', function (e) {
+                e.preventDefault();
+
+                const newExpense = {
+                    date: document.getElementById('date').value,
+                    description: document.getElementById('description').value,
+                    category: document.getElementById('category').value,
+                    amount: parseFloat(document.getElementById('amount').value),
+                    id: currentEditExpenseId || Date.now() + Math.random() // Use existing ID or generate new
+                };
+
+                if (currentEditExpenseId) {
+                    const index = expenses.findIndex(exp => exp.id === currentEditExpenseId);
+                    if (index !== -1) {
+                        expenses[index] = newExpense;
+                    }
+                } else {
+                    expenses.push(newExpense);
+                }
+                resetForms();
+                updateUI();
+            });
+
+            cancelIncomeEditButton.addEventListener('click', resetForms);
+            cancelExpenseEditButton.addEventListener('click', resetForms);
+
+            syncButton.addEventListener('click', async function() {
+                appsScriptUrl = appsScriptUrlInput.value.trim();
+                if (!appsScriptUrl) {
+                    syncStatusEl.textContent = 'Harap masukkan URL Google Apps Script.';
+                    syncStatusEl.className = 'mt-2 text-center text-sm font-medium text-red-600';
+                    return;
+                }
+
+                syncStatusEl.textContent = 'Mengirim data...';
+                syncStatusEl.className = 'mt-2 text-center text-sm font-medium text-blue-600';
+
+                try {
+                    const dataToSend = {
+                        incomes: incomes,
+                        expenses: expenses
+                    };
+
+                    const response = await fetch(appsScriptUrl, {
+                        method: 'POST',
+                        mode: 'no-cors', 
+                        cache: 'no-cache',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(dataToSend)
+                    });
+
+                    syncStatusEl.textContent = 'Data berhasil dikirim (mungkin butuh beberapa detik untuk muncul di GSheet)!';
+                    syncStatusEl.className = 'mt-2 text-center text-sm font-medium text-emerald-600';
+
+                } catch (error) {
+                    console.error('Error saat sinkronisasi:', error);
+                    syncStatusEl.textContent = 'Gagal sinkronisasi data. Periksa URL atau koneksi.';
+                    syncStatusEl.className = 'mt-2 text-center text-sm font-medium text-red-600';
+                }
+            });
+
+            resetDataButton.addEventListener('click', () => {
+                confirmationModal.classList.add('open');
+            });
+
+            cancelResetButton.addEventListener('click', () => {
+                confirmationModal.classList.remove('open');
+            });
+
+            confirmResetButton.addEventListener('click', () => {
+                incomes = [];
+                expenses = [];
+                updateUI();
+                resetForms();
+                confirmationModal.classList.remove('open');
+            });
+
+            document.getElementById('date').valueAsDate = new Date();
+            document.getElementById('income-date').valueAsDate = new Date();
+            updateUI();
+        });
+    </script>
+</body>
+</html>
